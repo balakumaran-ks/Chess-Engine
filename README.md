@@ -234,46 +234,6 @@ Most operations compile to single CPU instructions:
 - **Mathematical basis**: 56 = 0b111000 flips rank bits
 - **No lookup tables**: Computation cheaper than memory access
 
-## Common Beginner Mistakes
-
-### ❌ Wrong: Using Integer
-
-```java
-int bitboard = 1 << 50;  // OVERFLOW! Only 32 bits
-```
-
-### ✓ Correct: Use Long
-
-```java
-long bitboard = 1L << 50;  // All 64 bits preserved
-```
-
-### ❌ Wrong: Wrong Shift Direction
-
-```java
-long moved = pawns >> 8;  // White pawns go DOWN!
-```
-
-### ✓ Correct: Left Shift is UP
-
-```java
-long moved = pawns << 8;  // White pawns go UP one rank
-```
-
-### ❌ Wrong: File Wrapping
-
-```java
-long leftAttacks = pawns >> 1;  // H-file wraps to A-file!
-```
-
-### ✓ Correct: Mask Before Shifting
-
-```java
-long leftAttacks = (pawns & ~SquareUtils.FILE_BITBOARDS[7]) >> 1;
-```
-
-See **ARCHITECTURE.md** for more common mistakes and how to avoid them.
-
 ## Building and Testing
 
 ### Compile
