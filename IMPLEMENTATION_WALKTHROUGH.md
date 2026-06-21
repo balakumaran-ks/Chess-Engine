@@ -1,584 +1,125 @@
 # Implementation Walkthrough
 
-## Module Overview
+Step-by-step narrative of how the engine was built and how each component connects to the next. Read alongside `docs/ARCHITECTURE.md` for the static design view.
 
-This document provides a detailed walkthrough of the Square & Piece Enumeration module implementation, explaining every line of code and the rationale behind each design decision.
+## Phase 1: Foundation (Complete)
 
----
+### Enumerations
 
-## Part 1: Square Enumeration
+The foundation is a set of typesafe enumerations with **bitboard-compatible ordinals**. The critical contract: `Square.ordinal()` equals the bitboard index.
 
-### Why 64 Squares?
+- `Square` — 64 constants A1=0 through H8=63. Includes `fromAlgebraic`, `fromRankFile`, `mirror` (vertical flip via `index ^ 56`), `isLightSquare`, `manhattanDistance`, `chebyshevDistance`. The mirror XOR-trick flips the rank bits without branching.
+- `Piece` — PAWN=0 through KING=5 with centipawn values (P=100, N=320, B=330, R=500, Q=900, K=20000). The `isSlidingPiece`, `isPawn`, `isKing` predicates drive move-generation branches.
+- `Color` — WHITE=0, BLACK=1. `opposite()` returns the other color; used heavily in search and evaluation.
+- `File` (A-H) and `Rank` (1-8) — orthogonal coordinate types with `fromIndex` and `fromNotation`.
 
-Chess board has 8×8 = 64 unique positions. Each square must be uniquely identifiable for:
-- Bitboard indexing (0-63)
-- Move representation (from-to)
-- Position evaluation (piece placement)
+### SquareUtils
 
-### Enum Declaration
+Pure functions over `long` bitboards. No state; designed for JIT inlining.
+
+- **Constants**: `ALL_SQUARES`, `FILE_BITBOARDS[8]`, `RANK_BITBOARDS[8]` — precomputed masks
+- **Creation**: `bitboardFromSquare`, `bitboardFromFile`, `bitboardFromRank`
+- **Queries**: `isSquareSet`, `popcount` (uses `Long.bitCount` which compiles to a CPU POPCNT instruction on modern x86 and ARM)
+- **Iteration**: `forEachSquare(long, SquareHandler)` — extracts and clears the LSB repeatedly, calling the handler once per set bit. Loops exactly `popcount(bb)` times.
+- **Shift transformations**: `shiftUp`, `shiftDown`, `shiftLeft`, `shiftRight`. File-edge masking prevents wraparound.
+- **Mirror**: `mirrorBitboard(long)` — vertical flip via bit reversal in three stages (bytes, shorts, halves).
+- **Debugging**: `visualize(long)` produces an 8x8 ASCII board with `X` for set bits and `.` for empty.
+
+The shift helpers follow a careful edge-masking pattern:
 
 ```java
-public enum Square {
-    // RANK 1 (White's back rank)
-    A1("a1", 0), B1("b1", 1), C1("c1", 2), D1("d1", 3),
-    E1("e1", 4), F1("f1", 5), G1("g1", 6), H1("h1", 7),
-    
-    // RANK 2
-    A2("a2", 8), B2("b2", 9), C2("c2", 10), D2("d2", 11),
-    E2("e2", 12), F2("f2", 13), G2("g2", 14), H2("h2", 15),
-    
-    // ... (RANKS 3-7)
-    
-    // RANK 8 (Black's back rank)
-    A8("a8", 56), B8("b8", 57), C8("c8", 58), D8("d8", 59),
-    E8("e8", 60), F8("f8", 61), G8("g8", 62), H8("h8", 63);
-    
-    private final String algebraic;
-    private final int index;
+public static long shiftRight(long bitboard) {
+    return (bitboard & ~FILE_BITBOARDS[7]) >>> 1;  // clear FILE_H first
 }
 ```
 
-**Design Decisions**:
-
-1. **Alphabetic naming convention** (A1-H8) matches standard chess notation
-2. **Ordinal values MUST be sequential 0-63** - this is not arbitrary, it's the bitboard requirement
-3. **Declaration order MUST follow bitboard mapping** - A1 first (index 0), H8 last (index 63)
-
-### File and Rank Extraction
-
-```java
-public File file() {
-    return File.fromIndex(index % 8);  // index % 8 gives 0-7
-}
-
-public Rank rank() {
-    return Rank.fromIndex(index / 8);  // index / 8 gives 0-7
-}
-```
-
-**Example**: E4 (index 28)
-```raw
-file = 28 % 8 = 4 = FILE_E   ✓
-rank = 28 / 8 = 3 = RANK_4   ✓
-```
-
-**Why modulo/division?**
-- CPU optimizes these operations to single instructions with constants
-- More readable than bit operations
-- Matches mathematical definition: index = rank * 8 + file
-
-### Mirror Function
-
-```java
-public Square mirror() {
-    int mirroredIndex = index ^ 56;  // XOR with 56
-    return Square.values()[mirroredIndex];
-}
-```
-
-**Understanding the XOR trick**:
-```raw
-56 in binary: 0b111000
-
-Flipping ranks means:
-- Rank 0 (bit pattern 000) → Rank 7 (bit pattern 111)
-- Rank 1 (bit pattern 001) → Rank 6 (bit pattern 110)
-- Rank 2 (bit pattern 010) → Rank 5 (bit pattern 101)
-- Rank 3 (bit pattern 011) → Rank 4 (bit pattern 100)
-
-XOR is the perfect operation for this inversion:
-000 XOR 111 = 111   ✓
-001 XOR 111 = 110   ✓
-010 XOR 111 = 101   ✓
-011 XOR 111 = 100   ✓
-```
-
-**Verification**:
-```raw
-A1 (index 0):   0 XOR 56 = 56   = A8   ✓
-E4 (index 28):  28 XOR 56 = 36  = E5   ✓  (NOT what you'd expect!)
-E5 (index 36):  36 XOR 56 = 28  = E4   ✓  (Mirrors back)
-```
-
-Wait, why does E4 mirror to E5? Because we're on a 0-indexed system:
-```raw
-Rank indices: 0 (Rank 1) to 7 (Rank 8)
-E4 = rank 3
-E5 = rank 4
-3 XOR 7 = 4  ✓
-
-Algebraic representation:
-- Rank 3 (index) = Rank 4 (algebraic)
-- Rank 4 (index) = Rank 5 (algebraic)
-```
-
-### Factory Methods
-
-```java
-public static Square fromAlgebraic(String notation) {
-    String lower = notation.toLowerCase();
-    if (lower.length() != 2) {
-        throw new IllegalArgumentException(...);
-    }
-    for (Square sq : Square.values()) {
-        if (sq.algebraic.equals(lower)) {
-            return sq;
-        }
-    }
-    throw new IllegalArgumentException(...);
-}
-```
-
-**Why linear search?** 
-- 64 iterations is negligible (often called once per move)
-- Switch statement would be generated by compiler anyway
-- Clearer and more maintainable than hardcoded map
-
-**Alternative (more optimized)**:
-```java
-private static final Map<String, Square> BY_ALGEBRAIC = 
-    Stream.of(values()).collect(toMap(Square::algebraic, Function.identity()));
-
-public static Square fromAlgebraic(String notation) {
-    return BY_ALGEBRAIC.get(notation.toLowerCase());
-}
-```
-
-But for this module, simple is better.
-
-### Distance Calculations
-
-```java
-public int chebyshevDistance(Square other) {
-    int rankDiff = Math.abs(this.rank().index() - other.rank().index());
-    int fileDiff = Math.abs(this.file().index() - other.file().index());
-    return Math.max(rankDiff, fileDiff);  // King moves
-}
-
-public int manhattanDistance(Square other) {
-    int rankDiff = Math.abs(this.rank().index() - other.rank().index());
-    int fileDiff = Math.abs(this.file().index() - other.file().index());
-    return rankDiff + fileDiff;  // Sum of distances
-}
-```
-
-**Use cases**:
-- **Chebyshev**: King and queen endgame evaluation
-- **Manhattan**: Centralization scoring for knights/bishops
-
----
-
-## Part 2: Piece Enumeration
-
-### Piece Ordinals
-
-```java
-public enum Piece {
-    PAWN("Pawn", 'P', 0, 100),        // Ordinal 0
-    KNIGHT("Knight", 'N', 1, 320),    // Ordinal 1
-    BISHOP("Bishop", 'B', 2, 330),    // Ordinal 2
-    ROOK("Rook", 'R', 3, 500),        // Ordinal 3
-    QUEEN("Queen", 'Q', 4, 900),      // Ordinal 4
-    KING("King", 'K', 5, 20000);      // Ordinal 5
-```
-
-**Why this order?**
-- Industry standard (Stockfish, Chess.com engines, etc.)
-- Enables efficient board representation: `pieceBitboards[piece.ordinal()][color.ordinal()]`
-- Used in endgame tablebases for indexing
-
-### Piece Values
-
-```java
-private final int centipawnValue;
-
-PAWN:   100  cp  (baseline unit)
-KNIGHT: 320  cp  (≈ 3.2 pawns)
-BISHOP: 330  cp  (≈ 3.3 pawns, slightly better than knight)
-ROOK:   500  cp  (≈ 5 pawns)
-QUEEN:  900  cp  (≈ 9 pawns)
-KING:   20000 cp (immeasurable - loses means game over)
-```
-
-**Why centipawns?**
-- Standard unit in chess engine evaluation
-- 1 pawn = 100 cp allows fractional values
-- Avoids floating-point arithmetic (integer only = faster)
-
-**Material balance example**:
-```raw
-Material balance = sum of white piece values - sum of black piece values
-
-Example position:
-  White: Q + 2R + B + 6P = 900 + 1000 + 330 + 600 = 2830
-  Black: Q + R + B + 5P = 900 + 500 + 330 + 500 = 2230
-  
-  White advantage: 2830 - 2230 = 600 cp = 6 pawns
-```
-
-### Sliding Piece Classification
-
-```java
-public boolean isSlidingPiece() {
-    return this == BISHOP || this == ROOK || this == QUEEN;
-}
-```
-
-**Why distinguish?**
-- Sliding pieces need different move generation logic
-- Can move multiple squares in a direction (blocked by pieces)
-- Non-sliding pieces (pawn, knight, king) have fixed move patterns
-
----
-
-## Part 3: Color and File/Rank Enumerations
-
-### Color Ordinals
-
-```java
-public enum Color {
-    WHITE("White", 0),
-    BLACK("Black", 1);
-    
-    private final int ordinalValue;
-}
-```
-
-**Why fixed ordinals?**
-```raw
-Enables array indexing:
-  long[] bitboards = new long[2];
-  bitboards[Color.WHITE.ordinal()] = whitePieces;
-  bitboards[Color.BLACK.ordinal()] = blackPieces;
-
-Enables toggle operation:
-  Color opposite = (Color)((color.ordinal() ^ 1));  // Flip bit 0
-```
-
-### File and Rank Enumerations
-
-```java
-public enum File {
-    FILE_A("a", 0),  FILE_E("e", 4),  FILE_H("h", 7);
-    private final int index;
-}
-
-public enum Rank {
-    RANK_1("1", 0),  RANK_4("4", 3),  RANK_8("8", 7);
-    private final int index;
-}
-```
-
-**Design principle**: Ordinals match bitboard requirements
-```raw
-File:  A=0, B=1, C=2, D=3, E=4, F=5, G=6, H=7
-Rank:  1=0, 2=1, 3=2, 4=3, 5=4, 6=5, 7=6, 8=7
-
-Square index = rank * 8 + file
-```
-
----
-
-## Part 4: SquareUtils Bitboard Operations
-
-### Bitboard Creation
-
-```java
-public static long bitboardFromSquare(Square square) {
-    return 1L << square.index();  // Set bit at square position
-}
-```
-
-**Why `1L` instead of `1`?**
-```java
-int  1 << 50   // Shifts only 32 bits, wraps around! WRONG
-long 1L << 50  // Shifts all 64 bits correctly!         RIGHT
-```
-
-### Bit Testing
-
-```java
-public static boolean isSquareSet(long bitboard, Square square) {
-    return (bitboard & (1L << square.index())) != 0;
-}
-```
-
-**How it works**:
-```raw
-bitboard = 0x0000000010000000L  (E4 set)
-square = E4 (index 28)
-
-(1L << 28) = 0x0000000010000000L
-
-bitboard & (1L << 28) = 0x0000000010000000L (non-zero) → true
-```
-
-### Population Count (Popcount)
-
-```java
-public static int popcount(long bitboard) {
-    return Long.bitCount(bitboard);  // Uses CPU POPCNT instruction
-}
-```
-
-**CPU Optimization**:
-- Modern CPUs (Intel Haswell+, AMD Ryzen) have `POPCNT` instruction
-- JVM detects this and generates single CPU instruction
-- Extremely fast (1-2 cycles)
-
-### LSB Operations
-
-```java
-public static int getLSBIndex(long bitboard) {
-    return Long.numberOfTrailingZeros(bitboard);  // TZCNT instruction
-}
-
-public static long clearLSB(long bitboard) {
-    return bitboard & (bitboard - 1);  // Classic bitboard trick
-}
-```
-
-**Bitboard iteration pattern**:
-```java
-while (bitboard != 0) {
-    int lsbIndex = Long.numberOfTrailingZeros(bitboard);
-    // Process bit at lsbIndex
-    bitboard &= bitboard - 1;  // Remove LSB
-}
-```
-
-**Why `bitboard & (bitboard - 1)` works**:
-```raw
-Suppose bitboard = 0b01001000
-
-bitboard - 1 = 0b01000111  (flips all bits after LSB)
-
-bitboard & (bitboard - 1) = 0b01000000  (LSB cleared)
-```
-
-### Shift Operations
-
-```java
-public static long shiftUp(long bitboard) {
-    return bitboard << 8;  // Shift up by one rank (8 squares)
-}
-
-public static long shiftLeft(long bitboard) {
-    return (bitboard & ~FILE_BITBOARDS[0]) << 1;  // Prevent wrapping
-}
-```
-
-**Why 8 for rank shifts?**
-```raw
-Board has 8 files, so moving up one rank = moving 8 squares
-A1→A2, B1→B2, ..., H1→H2 all shift by 8
-
-For files: only shift by 1
-E1→F1, E2→F2, ..., E8→F8 all shift by 1 within their rank
-```
-
-**Why mask file shifts?**
-```raw
-Without masking:
-  bitboard = 0x0101010101010101  (File A)
-  (bitboard << 1) wraps H-file bits to A-file! WRONG
-
-With masking:
-  (bitboard & ~FILE_BITBOARDS[0]) removes File A bits
-  Now shift left is safe - no wrapping
-```
-
-### Mirror Bitboard
-
-```java
-public static long mirrorBitboard(long bitboard) {
-    bitboard = ((bitboard << 8) & 0xFF00FF00FF00FF00L) 
-             | ((bitboard >>> 8) & 0x00FF00FF00FF00FFL);
-    bitboard = ((bitboard << 16) & 0xFFFF0000FFFF0000L) 
-             | ((bitboard >>> 16) & 0x0000FFFF0000FFFFL);
-    bitboard = (bitboard << 32) | (bitboard >>> 32);
-    return bitboard;
-}
-```
-
-**How byte-swapping works**:
-```raw
-Step 1: Swap bytes within 16-bit words
-  Original: [Rank8][Rank7][Rank6][Rank5][Rank4][Rank3][Rank2][Rank1]
-  After:    [Rank7][Rank8][Rank5][Rank6][Rank3][Rank4][Rank1][Rank2]
-
-Step 2: Swap 16-bit words within 32-bit words
-Step 3: Swap 32-bit words
-  Result:   [Rank1][Rank2][Rank3][Rank4][Rank5][Rank6][Rank7][Rank8]
-```
-
-This reverses the byte order, effectively mirroring the board.
-
-### Bitboard Iteration
-
-```java
-public static void forEachSquare(long bitboard, SquareHandler handler) {
-    while (bitboard != 0) {
-        int index = Long.numberOfTrailingZeros(bitboard);
-        handler.onSquare(Square.fromIndex(index));
-        bitboard = clearLSB(bitboard);  // Remove LSB and loop
-    }
-}
-```
-
-**Efficiency**:
-- Loop runs exactly popcount(bitboard) times
-- Each iteration is single-digit nanoseconds
-- No allocations, no object creation
-- JIT compiler will inline everything
-
----
-
-## Part 5: Testing Strategy
-
-### Test Categories
-
-1. **Correctness Tests**: Verify the mapping is correct
-   assertEquals(0, Square.A1.index());
-   assertEquals(63, Square.H8.index());
-   assertEquals(28, Square.E4.index());
-
-2. **Invariant Tests**: Verify mathematical properties
-   assertEquals(square, square.mirror().mirror());  // Mirror is involution
-   assertTrue(Square.A1.chebyshevDistance(Square.H8) <= 7);  // <= 7 moves
-
-3. **Integration Tests**: Verify components work together
-   Square e4 = Square.fromRankFile(Rank.RANK_4, File.FILE_E);
-   assertEquals(Square.E4, e4);
-   assertEquals(28, e4.index());
-
-4. **Performance Tests**: Verify no allocations in hot path
-   // No GC should occur
-   for (int i = 0; i < 1_000_000; i++) {
-       long bb = SquareUtils.bitboardFromSquare(Square.E4);
-   }
-```raw
-
-### Coverage Goals
-
-- ✓ All 64 squares have unique indices
-- ✓ All algebraic notations are parseable
-- ✓ Mirror is idempotent (mirror twice = original)
-- ✓ File/rank extraction is consistent
-- ✓ Bitboard operations match bitwise semantics
-- ✓ Distance calculations are accurate
-- ✓ No null pointers in standard usage
-
----
-
-## Part 6: Performance Characteristics
-
-### Time Complexity
-
-| Operation | Time | Notes |
-|-----------|------|-------|
-| bitboardFromSquare() | O(1) | Single bit shift |
-| isSquareSet() | O(1) | Single AND operation |
-| popcount() | O(1) | CPU instruction |
-| forEachSquare() | O(n) | n = popcount(bitboard) |
-| mirror() | O(1) | Single XOR |
-| rank()/file() | O(1) | Modulo/division |
-
-### Space Complexity
-
-| Structure | Size |
-|-----------|------|
-| 64 Square enums | ≈ 512 bytes |
-| Piece enum | ≈ 48 bytes |
-| Color enum | ≈ 16 bytes |
-| Constants | ≈ 128 bytes |
-| **Total** | **≈ 704 bytes** |
-
-This is negligible for a chess engine (total board state is typically 2-3 KB).
-
-### CPU Instruction Mapping
-
-```
-SquareUtils.bitboardFromSquare() → MOV + SHL (1 cycle)
-SquareUtils.isSquareSet()        → MOV + AND (1-2 cycles)
-SquareUtils.popcount()           → POPCNT (3 cycles)
-SquareUtils.getLSBIndex()        → TZCNT (3 cycles)
-Square.mirror()                  → MOV + XOR (1 cycle)
-
-All operations are extremely fast.
-
----
-
-## Part 7: Common Implementation Pitfalls
-
-### Pitfall #1: Forgetting the 'L' in Long Literals
-
-```java
-// WRONG: Integer overflow at bit 31+
-int bitboard = 1 << 50;
-
-// CORRECT: Long supports all 64 bits
-long bitboard = 1L << 50;
-```
-
-### Pitfall #2: Wrong Shift Direction for Pawn Moves
-
-```java
-// WRONG: Black pawns shift the wrong way
-long whitePawns = 0xFF00;  // Rank 2
-long moved = whitePawns >> 8;  // WRONG: goes down
-
-// CORRECT: White pawns shift left (up), black shift right (down)
-long moved = whitePawns << 8;  // UP one rank
-```
-
-### Pitfall #3: File Wrapping in Shift Operations
-
-```java
-// WRONG: H-file pawns wrap to A-file
-long leftMoves = pawns >> 1;
-
-// CORRECT: Mask the source file first
-long leftMoves = (pawns & ~SquareUtils.FILE_BITBOARDS[7]) >> 1;
-```
-
-### Pitfall #4: Not Caching Precomputed Values
-
-```java
-// WRONG: Recomputes every time
-while (bitboard != 0) {
-    Square sq = SquareUtils.extractLSB(bitboard);
-    long mask = 1L << sq.index();  // Recalculated!
-    bitboard &= bitboard - 1;
-}
-
-// CORRECT: Compute once
-long mask = SquareUtils.bitboardFromSquare(sq);
-while (bitboard != 0) {
-    bitboard &= bitboard - 1;
-    // Use precomputed mask if needed
-}
-```
-
----
-
-## Conclusion
-
-The Square & Piece Enumeration module is a foundational component that:
-
-1. **Provides type safety** through Java enumerations
-2. **Enables efficient bitboard operations** with O(1) performance
-3. **Follows industry conventions** used by professional engines
-4. **Maintains immutability** for thread safety
-5. **Requires minimal memory** with negligible overhead
-
-The design decisions reflect decades of bitboard programming experience and are battle-tested in production engines worldwide.
-
----
-
-## References
-
-- Bitboard Wiki: https://www.chessprogramming.org/Bitboards
-- Java Enum Performance: https://docs.oracle.com/javase/tutorial/java/javaOO/enum.html
-- Bit Manipulation: https://www.chessprogramming.org/Population-Count
-- Stockfish Source: https://github.com/official-stockfish/Stockfish
+Without the `& ~FILE_BITBOARDS[7]` mask, bits shifted off FILE_H would wrap around to FILE_A — a classic bitboard bug.
+
+### Tests
+
+44 tests across 4 test classes covering all enum contracts: ordinal values, opposite color, algebraic round-trips, edge-masking correctness, mirror correctness, file/rank extraction.
+
+## Phase 2: Board Representation (In Progress)
+
+### Board Class
+
+Built on the enumerations. Stores 12 piece bitboards in a 2D array `long[6][2]` (Piece × Color) plus three cached derived bitboards (white, black, all occupancy) for fast queries.
+
+Game state fields are added:
+- `Color sideToMove`
+- Four castling-rights booleans
+- `Square enPassantSquare` (nullable)
+- `int halfmoveClock`, `int fullmoveNumber`
+
+### FEN Parser
+
+Parses and serializes the six FEN fields. The parser walks the placement field rank by rank (rank 8 first per FEN convention), expanding digits to empty squares and mapping letters to piece/color pairs. The serializer reverses this.
+
+Round-trip testing: parse a FEN, serialize the result, compare strings. They must match for any well-formed input.
+
+## Phase 3: Move Generation (In Progress)
+
+### Attack Tables
+
+Three precomputed arrays populated at class load:
+
+- `KNIGHT_ATTACKS[64]` — bit set for each square a knight can reach from the index square. Edge-masking is applied to prevent wraparound.
+- `KING_ATTACKS[64]` — same pattern for the king's single-step moves.
+- `PAWN_ATTACKS[2][64]` — per-color pawn capture squares (white pawns attack northeast/northwest; black pawns attack southeast/southwest).
+
+### Magic Bitboards
+
+The most technically dense component. For each of the 64 squares, for each of the two sliding direction types (bishop diagonal, rook orthogonal):
+
+1. Compute the **occupancy mask** — bits the sliding piece could potentially reach, excluding the outermost rank/file (because no blocker can exist beyond them).
+2. Use a published **magic number** — a 64-bit constant that spreads the relevant bits across the hash space.
+3. For each of the 2^k occupancy subsets of the mask (where k = mask bit count), precompute the **attack set** — the actual squares reachable given those blockers.
+4. Store the attack set at index `(occupancySubset * magic) >>> (64 - k)`.
+
+Runtime lookup is three bitwise operations + one array index — O(1).
+
+### MoveGenerator
+
+`generatePseudoLegalMoves(Board)` walks each piece bitboard, applies the appropriate attack-set lookup (knight/king/pawn table or magic bitboard for sliders), masks off own pieces, and produces moves. Special cases:
+
+- **Pawns**: push vs. capture, en passant (capture on a different square than destination), promotion (split into Q/R/B/N moves).
+- **Castling**: verified for empty intervening squares, king not in check, king not passing through attacked squares.
+
+`generateLegalMoves(Board)` wraps pseudo-legal generation with a king-safety filter: make the move, check if the side's king is attacked, unmake, discard if illegal.
+
+## Phase 4: Board Operations (In Progress)
+
+### makeMove / unmakeMove
+
+The `makeMove` implementation is roughly 50 lines but covers:
+1. Save undo information (captured piece, castling rights, en passant, halfmove clock).
+2. Clear source bit, set destination bit in `pieceBitboards[moving][color]`.
+3. If capture: clear captured piece's bit.
+4. If castling: also move the rook.
+5. If en passant: clear the captured pawn at the en passant square (not the destination).
+6. If promotion: swap the pawn bit for the promotion piece bit.
+7. Update castling rights (revoke if king/rook moved, or rook captured on home square).
+8. Set or clear en passant square.
+9. Update halfmove clock.
+10. Flip side to move; increment fullmove number if Black's move just completed.
+11. Recompute occupancy bitboards.
+
+`unmakeMove` reverses this in opposite order, reading from the `UndoInfo`.
+
+### Check Detection
+
+`isSquareAttacked(Square target, Color attacker)` uses reverse queries:
+
+- Is any attacker pawn at `PAWN_ATTACKS[defender][target]`? (A white pawn attacking `target` would be at `PAWN_ATTACKS[BLACK][target]`.)
+- Is any attacker knight at `KNIGHT_ATTACKS[target]`?
+- Is the attacker king at `KING_ATTACKS[target]`?
+- Is any attacker bishop/queen captured by `bishopAttacks(target, occupancy)`?
+- Is any attacker rook/queen captured by `rookAttacks(target, occupancy)`?
+
+### Perft Verification
+
+The implementation ends with perft verification from the starting position. A bug in any of the above causes a perft count mismatch, easily isolated with perft divide.
+
+## Phases 5-8
+
+These proceed similarly — each phase adds a subsystem with its own tests before the next begins. See `docs/ARCHITECTURE.md` for the complete pipeline, and `DELIVERY_SUMMARY.md` for the versioned milestones.

@@ -1,362 +1,132 @@
-# Chess Engine: Square & Piece Enumerations
+# Chess Engine
 
-A **production-quality** bitboard-based chess engine foundation in pure Java, starting with the essential Square & Piece Enumeration module.
+A bitboard-based chess engine in pure Java, built as a capstone project for technical interviews. The engine targets ~1600 Elo playing strength with a UCI interface for integration with standard chess GUIs.
 
-## Overview
+## Project Status
 
-This module provides:
+| Phase | Status | Components |
+|-------|--------|------------|
+| v0.1 Foundation | Done | Square, Piece, Color, File, Rank enumerations + SquareUtils bitboard utilities |
+| v0.2 Board Representation | Done | 12-piece bitboard Board, FEN parsing/serialization, perft-ready state |
+| v0.3 Move Generation | Done | Precomputed attack tables, magic bitboards, pseudo-legal + legal move generation |
+| v0.4 Execute & Check | Done | make/unmake with state stack, isSquareAttacked, checkmate/stalemate detection |
+| v0.5 Evaluation | Done | Material + tapered piece-square tables + mobility + king safety |
+| v0.6 Search | Done | Negamax alpha-beta, iterative deepening, quiescence, move ordering, Zobrist transposition table |
+| v0.7 UCI Interface | Done | Full UCI command loop, time management, integration-ready with Arena/lichess-bot |
+| v0.8 Persistence Template | Done | Repository abstraction with in-memory default + documented MongoDB connection path |
 
-✓ **Type-Safe Enumerations** - Compile-time verified Square, Piece, Color, File, and Rank types
-✓ **Bitboard Operations** - O(1) constant-time bit manipulations for high-performance chess logic
-✓ **Industry Standard Design** - Follows conventions used in Stockfish, Chess.com, and professional engines
-✓ **Production Ready** - 44 passing tests, comprehensive documentation, battle-tested algorithms
-✓ **Zero Dependencies** - Pure Java, no external libraries required for core module
+See `docs/ROADMAP.md` for advanced functions planned but not implemented (opening books, endgame tablebases, NNUE, Lazy SMP, Texel tuning).
 
 ## Quick Start
 
-### Creating Squares
+### Build and Run the UCI Engine
 
-```java
-// Method 1: Direct enum
-Square e4 = Square.E4;
-
-// Method 2: From algebraic notation
-Square e4 = Square.fromAlgebraic("e4");
-
-// Method 3: From rank and file
-Square e4 = Square.fromRankFile(Rank.RANK_4, File.FILE_E);
-
-// Method 4: From 0-63 index
-Square e4 = Square.fromIndex(28);
+```bash
+mvn clean package
+java -jar target/chess-engine-0.1.0.jar
 ```
 
-### Bitboard Operations
+Then interact via the standard UCI protocol:
 
-```java
-// Create bitboard for single square
-long e4Board = 1L << Square.E4.index();
-
-// Iterate through all pawns
-long whitePawns = /* ... */;
-SquareUtils.forEachSquare(whitePawns, pawn -> {
-    System.out.println("Pawn at: " + pawn);
-});
-
-// Count pieces
-int pieceCount = SquareUtils.popcount(whitePawns);
-
-// Shift for pawn moves
-long whitePawnMoves = SquareUtils.shiftUp(whitePawns);  // Move up one rank
+```
+uci
+isready
+position startpos
+go depth 5
 ```
 
-### Piece Operations
+The engine responds with the best move in UCI coordinate notation (e.g., `bestmove e2e4`).
+
+### Use in Code
 
 ```java
-// Get piece value
-int queenValue = Piece.QUEEN.centipawnValue();  // 900 centipawns
+import engine.board.Board;
+import engine.board.FenParser;
+import engine.move.MoveGenerator;
+import engine.search.Searcher;
+import engine.search.SearchLimits;
 
-// Check piece type
-if (piece.isSlidingPiece()) {
-    // Bishop, Rook, or Queen - can move multiple squares
-}
+// Set up a position from FEN
+Board board = FenParser.parse(FenParser.STARTING_POSITION_FEN);
 
-// Material evaluation
-int whiteAdvantage = calculateMaterialBalance(whitePieces, blackPieces);
+// Generate all legal moves
+var moves = MoveGenerator.generateLegalMoves(board);
+
+// Search for the best move
+Searcher searcher = new Searcher();
+Move bestMove = searcher.search(board, SearchLimits.depth(5));
 ```
+
+## Architecture
+
+```
+Position (FEN) -> Board -> MoveGenerator -> Searcher -> Evaluator -> UCI output
+                                                 ^
+                                          TranspositionTable
+                                                 ^
+                                          Repository (in-memory / MongoDB optional)
+```
+
+### Core Components
+
+- **Enumerations** (`engine.constants`): Square (64, bitboard-mapped 0-63), Piece (6 types with centipawn values), Color, File, Rank
+- **Board** (`engine.board`): 12 piece bitboards plus occupancy and game state, FEN round-trip, make/unmake with state stack
+- **Move Generation** (`engine.move`): precomputed knight/king/pawn attack tables, magic bitboards for sliding pieces, pseudo-legal generation with legal filtering
+- **Evaluation** (`engine.eval`): material, tapered piece-square tables, mobility, king safety
+- **Search** (`engine.search`): negamax with alpha-beta, iterative deepening, quiescence search, MVV-LVA + killer + history move ordering, Zobrist-hashed transposition table
+- **Persistence** (`engine.persistence`): `PositionRepository` interface with `NoOp` default and `MongoPositionRepository` for MongoDB-backed analysis storage; see `docs/DATABASE_INTEGRATION.md`
 
 ## Project Structure
 
-```raw
-src/main/java/engine/
-├── constants/
-│   ├── Square.java      (64 chess board positions)
-│   ├── Piece.java       (6 piece types)
-│   ├── Color.java       (White/Black sides)
-│   ├── File.java        (A-H columns)
-│   ├── Rank.java        (1-8 rows)
-│   └── EnumerationTest.java
-│
-└── utils/
-    └── SquareUtils.java (Bitboard utilities)
+```
+src/main/java/com/chessengine/
+├── constants/     # Square, Piece, Color, File, Rank enums
+├── board/         # Board, FenParser
+├── move/          # Move, MoveList, AttackTables, MagicBitboards, MoveGenerator
+├── eval/          # Evaluator, PieceSquareTables
+├── search/        # Searcher, Zobrist, TranspositionTable
+├── persistence/   # PositionRepository, NoOpPositionRepository, mongo/*
+└── ChessEngine.java  # UCI entry point
 
-src/test/java/engine/
-├── constants/
-│   ├── SquareTest.java
-│   ├── PieceTest.java
-│   ├── EnumerationTests.java
-│   └── ...
-│
-└── utils/
-    └── SquareUtilsTest.java
+src/test/java/com/chessengine/
+├── constants/     # Enum tests
+├── board/         # Board + FEN + perft tests
+├── move/          # Move generation tests
+├── eval/          # Evaluation tests
+├── search/        # Search + mate puzzle tests
+└── bench/         # JMH-style benchmarks
 
-Documentation:
-├── README.md                     (this file)
-├── ARCHITECTURE.md               (detailed design decisions)
-├── QUICK_REFERENCE.md            (developer cheat sheet)
-└── IMPLEMENTATION_WALKTHROUGH.md (code-by-code explanation)
+docs/              # All project documentation
 ```
 
-## Core Components
+## Design Decisions
 
-### Square Enumeration
+- **Bitboards over piece arrays**: 64-bit `long` per piece type/color, enables O(1) move generation via bitwise ops
+- **Magic bitboards for sliding pieces**: industry-standard technique (Stockfish) for O(1) sliding attack lookups
+- **make/unmake with state stack**: zero-allocation update-and-revert beats copy-make at search depth
+- **Negamax formulation**: cleaner than minimax for zero-sum search with alpha-beta
+- **Repository abstraction for persistence**: engine runs database-free by default for interview demo; MongoDB connection is a documented config step, not a build-time requirement
 
-Represents all 64 chess board squares using standard bitboard mapping:
-
-```raw
-   A   B   C   D   E   F   G   H
-8: 56  57  58  59  60  61  62  63
-7: 48  49  50  51  52  53  54  55
-6: 40  41  42  43  44  45  46  47
-5: 32  33  34  35  36  37  38  39
-4: 24  25  26  27  28  29  30  31
-3: 16  17  18  19  20  21  22  23
-2:  8   9  10  11  12  13  14  15
-1:  0   1   2   3   4   5   6   7
-```
-
-**Key Features**:
-- Index 0-63 maps directly to bitboard bit positions
-- Supports rank/file extraction: `Square.E4.rank()` → `RANK_4`
-- Vertical mirror: `Square.E4.mirror()` → `Square.E5`
-- Distance calculations: Chebyshev (king moves) and Manhattan
-
-### Piece Enumeration
-
-```java
-Piece.PAWN      // 100 centipawns
-Piece.KNIGHT    // 320 centipawns (≈ 3.2 pawns)
-Piece.BISHOP    // 330 centipawns
-Piece.ROOK      // 500 centipawns (≈ 5 pawns)
-Piece.QUEEN     // 900 centipawns (≈ 9 pawns)
-Piece.KING      // 20000 centipawns (immeasurable)
-```
-
-**Ordinals**: PAWN=0, KNIGHT=1, ..., KING=5
-- Used for efficient bitboard plane indexing
-- Industry standard matching Stockfish convention
-
-### SquareUtils
-
-High-performance bitboard utility methods:
-
-```java
-// Creation
-bitboardFromSquare(Square)      // Single square
-bitboardFromFile(File)          // 8 squares in file
-bitboardFromRank(Rank)          // 8 squares in rank
-
-// Queries
-isSquareSet(long, Square)       // Bit test
-popcount(long)                  // Count set bits
-getLSBIndex(long)               // Least significant bit
-
-// Transformations
-shiftUp/Down(long)              // Pawn moves
-shiftLeft/Right(long)           // File movements
-mirrorBitboard(long)            // Flip vertically
-
-// Iteration
-forEachSquare(long, handler)    // Visit each set bit
-```
-
-## Test Results
-
-```raw
-========== TEST SUMMARY ==========
-PASSED: 44
-FAILED: 0
-TOTAL:  44
-
-✓ All tests passed!
-```
-
-### Test Coverage
-
-- ✓ Bitboard mapping verification (A1=0, H8=63, E4=28)
-- ✓ Rank/file extraction (E4→RANK_4, FILE_E)
-- ✓ Mirror function (A1↔A8, E4↔E5)
-- ✓ Algebraic notation parsing ("e4" → E4)
-- ✓ Piece values (100-900 centipawns)
-- ✓ Color operations (WHITE/BLACK)
-- ✓ Bitboard operations (shifts, pops, bits)
-- ✓ Distance calculations (Chebyshev, Manhattan)
-- ✓ File/rank enumerations
-
-## Performance Characteristics
-
-### Time Complexity
-
-| Operation | Time | Implementation |
-|-----------|------|-----------------|
-| `bitboardFromSquare()` | O(1) | `1L << index` |
-| `isSquareSet()` | O(1) | Single AND |
-| `popcount()` | O(1) | CPU POPCNT instruction |
-| `forEachSquare()` | O(n) | n = number of bits |
-| `mirror()` | O(1) | Single XOR |
-| `rank()/file()` | O(1) | Division/modulo |
-
-### Memory Efficiency
-
-- **64 Square enums**: ≈ 512 bytes
-- **6 Piece enums**: ≈ 48 bytes
-- **2 Color enums**: ≈ 16 bytes
-- **Bitboard constants**: ≈ 128 bytes
-- **Total overhead**: ≈ 704 bytes (negligible)
-
-### CPU-Level Optimization
-
-```raw
-Most operations compile to single CPU instructions:
-- Bit shifting:     SHL/SHR (1 cycle)
-- Population count: POPCNT  (3 cycles)
-- Trailing zeros:   TZCNT   (3 cycles)
-- XOR (mirror):     XOR     (1 cycle)
-```
-
-## Design Decisions Explained
-
-### Why Enumerations?
-
-- **Type safety**: Compiler catches invalid values
-- **Performance**: Cached at class load time, O(1) ordinal lookup
-- **Industry standard**: Used by all professional engines
-- **IDE support**: Better autocomplete and refactoring
-
-### Why Ordinal = Bitboard Index?
-
-- **O(1) bitboard creation**: `1L << square.ordinal()`
-- **No conversion overhead**: Direct array indexing
-- **Matches standards**: Follows Stockfish/ChessProgramming.org conventions
-
-### Why XOR for Mirror?
-
-- **Extremely fast**: Single CPU instruction (1 cycle)
-- **Mathematical basis**: 56 = 0b111000 flips rank bits
-- **No lookup tables**: Computation cheaper than memory access
-
-## Building and Testing
-
-### Compile
+## Testing
 
 ```bash
-# Using javac directly
-javac -d target/classes \
-  src/main/java/engine/constants/*.java \
-  src/main/java/engine/utils/*.java \
-  src/main/java/engine/EnumerationTest.java
+mvn test
 ```
 
-### Run Tests
+Correctness is verified with **perft** (performance test), the gold-standard for chess engines. Perft counts leaf nodes at increasing depths from the starting position and must match known values:
 
-```bash
-java -cp target/classes engine.EnumerationTest
-```
-
-Expected output:
-```raw
-========== CHESS ENGINE ENUMERATION TESTS ==========
-TEST: Bitboard Mapping
-  ✓ A1 has index 0
-  ✓ H1 has index 7
-  ...
-========== TEST SUMMARY ==========
-PASSED: 44
-FAILED: 0
-✓ All tests passed!
-```
+| Depth | Expected Nodes |
+|-------|----------------|
+| 1 | 20 |
+| 2 | 400 |
+| 3 | 8,902 |
+| 4 | 197,281 |
+| 5 | 4,865,609 |
 
 ## Documentation
 
-- **ARCHITECTURE.md** - Complete design document (17K words)
-  - Bitboard fundamentals
-  - Design decisions with rationale
-  - Performance characteristics
-  - Future extensibility
-  - Common beginner mistakes
-
-- **QUICK_REFERENCE.md** - Developer cheat sheet
-  - Quick start examples
-  - Enumeration reference
-  - Bitboard techniques
-  - Common patterns
-  - Performance tips
-
-- **IMPLEMENTATION_WALKTHROUGH.md** - Code-by-code explanation (15K words)
-  - Every line explained
-  - Mathematical proofs
-  - CPU instruction mapping
-  - Testing strategy
-  - Performance characteristics
-
-## Example: Building a Simple Board Representation
-
-```java
-public class Board {
-    private long[][] pieceBitboards = new long[6][2];  // [piece][color]
-    private long[] colorBitboards = new long[2];       // [color]
-    
-    public void setPiece(Square square, Piece piece, Color color) {
-        long mask = 1L << square.index();
-        pieceBitboards[piece.ordinal()][color.ordinal()] |= mask;
-        colorBitboards[color.ordinal()] |= mask;
-    }
-    
-    public Piece getPiece(Square square, Color color) {
-        long mask = 1L << square.index();
-        for (Piece piece : Piece.values()) {
-            if ((pieceBitboards[piece.ordinal()][color.ordinal()] & mask) != 0) {
-                return piece;
-            }
-        }
-        return null;
-    }
-    
-    public void visualizeBitboard(long bitboard) {
-        System.out.println(SquareUtils.visualize(bitboard));
-    }
-}
-```
-
-## Next Steps
-
-This module is the foundation for a complete chess engine. Future modules will build on top of it:
-
-- **Move Generation** - Using bitboard operations to generate legal moves
-- **Position Evaluation** - Material, positional, and dynamic evaluation
-- **Search Algorithm** - AlphaBeta pruning with iterative deepening
-- **Transposition Tables** - Caching evaluated positions
-- **Endgame Tablebases** - Perfect play in simplified positions
-
-## References
-
-- **Bitboard Programming**: https://www.chessprogramming.org/Bitboards
-- **Magic Bitboards**: https://www.chessprogramming.org/Magic-Bitboards
-- **Stockfish Engine**: https://github.com/official-stockfish/Stockfish
-- **Chess Programming Book**: https://www.chessprogramming.org/
+All documentation lives in `docs/`. Start with `docs/CAPSTONE_SUMMARY.md` for the 5-minute interviewer overview, or `docs/ARCHITECTURE.md` for the full design.
 
 ## License
 
-This code is provided as educational material for learning bitboard-based chess engine development.
-
-## Author Notes
-
-This implementation represents best practices from:
-- 15+ years of bitboard programming experience
-- Stockfish architecture and design patterns
-- Chess Programming Wiki (chessprogramming.org)
-- Modern Java performance optimization techniques
-
-The code is designed to be:
-- **Correct**: Pass all tests, match mathematical invariants
-- **Fast**: O(1) operations, CPU instruction level optimization
-- **Clear**: Self-documenting code with comprehensive documentation
-- **Extensible**: Foundation for advanced chess engine components
-
-**All 44 tests pass. Ready for production use.**
-
----
-
-**Last Updated**: June 12, 2026
-**Status**: ✓ Production Ready
-**Lines of Code**: 2,000+ (including tests and documentation)
-**Test Coverage**: 100% of critical paths
+MIT - see `LICENSE`.
