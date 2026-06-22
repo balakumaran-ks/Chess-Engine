@@ -1,0 +1,45 @@
+name: Perft Correctness Gate
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  perft:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: temurin
+          cache: maven
+
+      - name: Run perft verification (depth 4)
+        run: mvn test -B -Dtest="MoveExecutionTest$StartingPerft"
+
+      - name: Run Kiwipete perft (depth 3)
+        run: mvn test -B -Dtest="MoveExecutionTest$KiwipetePerft"
+
+      - name: Run endgame perft (depth 3)
+        run: mvn test -B -Dtest="MoveExecutionTest$Position3Perft"
+
+      - name: Run make/unmake tests
+        run: mvn test -B -Dtest="MoveExecutionTest$MakeUnmakeTest"
+
+      - name: Run check detection tests
+        run: mvn test -B -Dtest="MoveExecutionTest$CheckDetectionTest"
+
+      - name: Run legal move filtering tests
+        run: mvn test -B -Dtest="MoveExecutionTest$LegalMoveFilteringTest"
+
+      - name: Run attack table tests
+        run: mvn test -B -Dtest="AttackTablesTest"
+
+      - name: Run evaluator tests
+        run: mvn test -B -Dtest="EvaluatorTest"
