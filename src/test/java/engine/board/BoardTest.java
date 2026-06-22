@@ -18,7 +18,7 @@ class BoardTest {
     void startingPositionHasCorrectPieceCounts() {
         Board board = FenParser.parse(FenParser.STARTING_POSITION_FEN);
 
-        assertEquals(1, popcount(board.pieceBitboard(Piece.ROOK, Color.WHITE)));
+        assertEquals(2, popcount(board.pieceBitboard(Piece.ROOK, Color.WHITE)));
         assertEquals(8, popcount(board.pieceBitboard(Piece.PAWN, Color.WHITE)));
         assertEquals(8, popcount(board.pieceBitboard(Piece.PAWN, Color.BLACK)));
         assertEquals(1, popcount(board.pieceBitboard(Piece.KING, Color.WHITE)));

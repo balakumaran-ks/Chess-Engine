@@ -20,7 +20,7 @@ class ColorTest {
     void testOpposite() {
         assertEquals(Color.BLACK, Color.WHITE.opposite());
         assertEquals(Color.WHITE, Color.BLACK.opposite());
-        assertEquals(Color.WHITE, Color.BLACK.opposite().opposite());
+        assertEquals(Color.BLACK, Color.BLACK.opposite().opposite());
     }
 
     @Test

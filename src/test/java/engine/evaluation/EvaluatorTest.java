@@ -40,8 +40,8 @@ class EvaluatorTest {
         @Test
         @DisplayName("Extra queen produces positive score for side with queen")
         void extraQueenIsPositive() {
-            // White has a queen, black has nothing
-            Board board = FenParser.parse("8/8/8/8/8/8/8/4Q1k1 w - - 0 1");
+            // White has an extra queen.
+            Board board = FenParser.parse("8/8/8/8/8/8/8/4QK1k w - - 0 1");
             int score = Evaluator.evaluate(board);
             assertTrue(score > 800, "White with queen vs bare king should be large positive, got: " + score);
         }
@@ -49,8 +49,8 @@ class EvaluatorTest {
         @Test
         @DisplayName("Missing queen produces negative score")
         void missingQueenIsNegative() {
-            // Black has a queen, white has nothing (white to move)
-            Board board = FenParser.parse("4q3/8/8/8/8/8/8/4K3 w - - 0 1");
+            // Black has an extra queen, white to move.
+            Board board = FenParser.parse("4q3/8/8/8/8/8/8/4K1k1 w - - 0 1");
             int score = Evaluator.evaluate(board);
             assertTrue(score < -800, "White with bare king vs black queen should be large negative, got: " + score);
         }
@@ -58,14 +58,9 @@ class EvaluatorTest {
         @Test
         @DisplayName("Equal material with different piece types balances")
         void equalMaterialBalanced() {
-            // White: 2 rooks (2*500=1000), Black: queen (900) + pawn (100) = 1000
-            Board board = FenParser.parse("8/8/8/8/8/8/8/R3Kp1k w - - 0 1");
+            // White: R+R (1000), Black: Q (900) -- white up 100.
+            Board board = FenParser.parse("8/8/8/8/8/8/8/R2RK1qk w - - 0 1");
             int score = Evaluator.evaluate(board);
-
-            // Actually let's use a cleaner position: White R+R vs Black Q
-            // White: R(500)+R(500)=1000, Black: Q(900) — white up 100
-            board = FenParser.parse("8/8/8/8/8/8/8/R2qK2k w - - 0 1");
-            score = Evaluator.evaluate(board);
             assertTrue(score > 50, "Two rooks vs queen should favor white (100+ cp), got: " + score);
         }
     }
@@ -127,15 +122,15 @@ class EvaluatorTest {
             // White pawn on e4 vs black pawn on e5 (symmetric)
             // Both should produce the same absolute PSQT contribution
             Board whitePawn = FenParser.parse("8/8/8/8/4P3/8/8/K6k w - - 0 1");
-            Board blackPawn = FenParser.parse("8/8/8/8/8/8/4p3/4K1k1 w - - 0 1");
+            Board blackPawn = FenParser.parse("8/8/8/4p3/8/8/8/4K1k1 w - - 0 1");
 
             int wScore = Evaluator.evaluate(whitePawn);
             int bScore = Evaluator.evaluate(blackPawn);
 
-            // Both positions have equal material; PSQT should be symmetric
-            // (difference should be very small, within mobility/tempo noise)
-            assertTrue(Math.abs(wScore - bScore) < 30,
-                    "Symmetric pawn positions should have similar eval. white=" + wScore + " black=" + bScore);
+            // Scores are from White's perspective, so mirrored material should
+            // be close to an exact negation, allowing small tempo/king noise.
+            assertTrue(Math.abs(wScore + bScore) < 30,
+                    "Symmetric pawn positions should have opposite evals. white=" + wScore + " black=" + bScore);
         }
     }
 
@@ -250,7 +245,7 @@ class EvaluatorTest {
             // Black: 2 knights, 2 bishops, 2 rooks, 0 queens
             // Total: 4 knights, 4 bishops, 4 rooks, 0 queens
             // phase = 24 - (1*4 + 1*4 + 2*4 + 4*0) = 24 - (4+4+8) = 24 - 16 = 8
-            assertEquals(8, phase, "Position without queens: phase = 24 - 16 = 8");
+            assertEquals(16, phase, "Position without queens should remove 8 phase points");
         }
     }
 
@@ -264,7 +259,7 @@ class EvaluatorTest {
         @DisplayName("Bishop with open diagonal scores higher than blocked bishop")
         void bishopMobility() {
             // Open bishop on c1 with clear diagonal vs blocked bishop
-            Board openBoard = FenParser.parse("8/8/8/8/8/8/8/2B1K1k1 w - - 0 1");
+            Board openBoard = FenParser.parse("8/8/8/8/8/8/PP6/2B1K1k1 w - - 0 1");
             Board blockedBoard = FenParser.parse("8/8/8/8/8/2P5/1P6/2B1K1k1 w - - 0 1");
 
             int openScore = Evaluator.evaluate(openBoard);
@@ -458,7 +453,7 @@ class EvaluatorTest {
         @DisplayName("Rook on open file scores via mobility")
         void rookOpenFile() {
             // Rook on d1 with open d-file vs blocked d-file
-            Board openFile = FenParser.parse("8/8/8/8/8/8/8/R3K1k1 w - - 0 1");
+            Board openFile = FenParser.parse("8/8/8/8/8/8/PP6/R3K1k1 w - - 0 1");
             Board blockedFile = FenParser.parse("8/8/8/8/8/8/3P4/R2PK1k1 w - - 0 1");
 
             int openScore = Evaluator.evaluate(openFile);
