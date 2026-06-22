@@ -1,7 +1,6 @@
 package engine.board;
 
 import engine.constants.Color;
-import engine.constants.File;
 import engine.constants.Piece;
 import engine.constants.Square;
 import engine.move.AttackTables;

@@ -3,7 +3,6 @@ package engine.move;
 import engine.board.Board;
 import engine.constants.Color;
 import engine.constants.Piece;
-import engine.constants.Rank;
 import engine.constants.Square;
 import engine.utils.SquareUtils;
 
@@ -99,7 +98,6 @@ public final class MoveGenerator {
         long empty = ~board.allOccupancy();
         long notRank1or8 = ~SquareUtils.RANK_BITBOARDS[0] & ~SquareUtils.RANK_BITBOARDS[7];
         int push = us == Color.WHITE ? 8 : -8;
-        Rank startRank = us == Color.WHITE ? Rank.RANK_2 : Rank.RANK_7;
 
         // Single push
         long singlePush = us == Color.WHITE ? (pawns << 8) & empty : (pawns >>> 8) & empty;
@@ -133,7 +131,6 @@ public final class MoveGenerator {
     private static void addPawnCaptures(MoveList moves, Board board, Color us) {
         long pawns = board.pieceBitboard(Piece.PAWN, us);
         long enemy = board.colorOccupancy(us.opposite());
-        int push = us == Color.WHITE ? 8 : -8;
 
         // Diagonal captures using pawn attack tables (PAWN_ATTACKS[us][from])
         forEachSource(pawns, from -> {
@@ -290,7 +287,6 @@ public final class MoveGenerator {
     }
 
     private static void addCastlingMoves(MoveList moves, Board board, Color us) {
-        Square kingSquare = board.kingSquare(us);
         if (board.isInCheck(us)) return;
 
         if (us == Color.WHITE) {

@@ -248,21 +248,21 @@ public final class MagicBitboards {
 
     private static long findMagic(java.util.Random rng, List<Long> subsets,
                                   long[] attackSets, long[] table, int shift) {
-        int tableSize = table.length;
+        boolean[] used = new boolean[table.length];
         long magic;
         while (true) {
             magic = rng.nextLong() & rng.nextLong() & rng.nextLong();
-            if (Long.bitCount((subsets.get(subsets.size() - 1) * magic) & 0xFF00000000000000L) < 6) continue;
 
-            java.util.Arrays.fill(table, 0L);
+            java.util.Arrays.fill(used, false);
             boolean collision = false;
             for (int i = 0; i < subsets.size(); i++) {
                 long s = subsets.get(i);
                 int idx = (int) ((s * magic) >>> shift);
-                if (table[idx] != 0L && table[idx] != attackSets[i]) {
+                if (used[idx] && table[idx] != attackSets[i]) {
                     collision = true;
                     break;
                 }
+                used[idx] = true;
                 table[idx] = attackSets[i];
             }
             if (!collision) return magic;
