@@ -46,10 +46,10 @@ class AttackTablesTest {
     }
 
     @Test
-    @DisplayName("Knight on e1 attacks exactly 3 squares (d3, f3, c2)")
+    @DisplayName("Knight on e1 attacks exactly 4 squares (c2, d3, f3, g2)")
     void knightOnE1() {
         long attacks = AttackTables.KNIGHT_ATTACKS[Square.E1.index()];
-        assertEquals(3, Long.bitCount(attacks));
+        assertEquals(4, Long.bitCount(attacks));
     }
 
     // ==================== King Attacks ====================

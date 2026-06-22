@@ -277,7 +277,7 @@ public enum Square {
     public boolean isLightSquare() {
         int rankIndex = index / 8;
         int fileIndex = index % 8;
-        return (rankIndex + fileIndex) % 2 == 0;
+        return (rankIndex + fileIndex) % 2 != 0;
     }
 
     /**

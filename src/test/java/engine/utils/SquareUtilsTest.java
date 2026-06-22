@@ -206,8 +206,8 @@ class SquareUtilsTest {
         assertTrue(SquareUtils.isValidBitboard(1L << 63));
         assertTrue(SquareUtils.isValidBitboard(SquareUtils.ALL_SQUARES));
 
-        // Bitboards with bits outside 0-63 are invalid
-        assertFalse(SquareUtils.isValidBitboard(1L << 64));
+        // Java long bitboards are exactly 64 bits, so every long value is in range.
+        assertTrue(SquareUtils.isValidBitboard(-1L));
     }
 
     @Test

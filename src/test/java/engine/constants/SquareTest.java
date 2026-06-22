@@ -170,8 +170,8 @@ class SquareTest {
         assertEquals(0, Square.E4.manhattanDistance(Square.E4));
         assertEquals(1, Square.E4.manhattanDistance(Square.E5));
         assertEquals(1, Square.E4.manhattanDistance(Square.D4));
-        assertEquals(6, Square.A1.manhattanDistance(Square.H8));
-        assertEquals(14, Square.A1.manhattanDistance(Square.H1)); // 0 + 7 (file distance)
+        assertEquals(14, Square.A1.manhattanDistance(Square.H8));
+        assertEquals(7, Square.A1.manhattanDistance(Square.H1)); // 0 + 7 (file distance)
     }
 
     @Test

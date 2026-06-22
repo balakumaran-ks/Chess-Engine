@@ -236,7 +236,7 @@ public final class SquareUtils {
      * @return bitboard shifted left by one file
      */
     public static long shiftLeft(long bitboard) {
-        return (bitboard & ~FILE_BITBOARDS[0]) << 1;
+        return (bitboard & ~FILE_BITBOARDS[0]) >>> 1;
     }
 
     /**
@@ -247,7 +247,7 @@ public final class SquareUtils {
      * @return bitboard shifted right by one file
      */
     public static long shiftRight(long bitboard) {
-        return (bitboard & ~FILE_BITBOARDS[7]) >>> 1;
+        return (bitboard & ~FILE_BITBOARDS[7]) << 1;
     }
 
     /**

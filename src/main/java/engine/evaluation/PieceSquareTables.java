@@ -175,9 +175,9 @@ public final class PieceSquareTables {
      */
     public static int score(int[] table, int square, Color color) {
         if (color == Color.WHITE) {
-            return table[square];
+            return table[square ^ 56];
         }
-        return table[square ^ 56];
+        return table[square];
     }
 
     // ==================== Phase ====================
