@@ -7,6 +7,7 @@ import engine.move.AttackTables;
 import engine.move.MagicBitboards;
 import engine.move.Move;
 import engine.move.MoveFlag;
+import engine.move.MoveGenerator;
 import engine.utils.SquareUtils;
 
 import java.util.ArrayDeque;

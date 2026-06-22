@@ -3,6 +3,7 @@ package engine.move;
 import engine.board.Board;
 import engine.constants.Color;
 import engine.constants.Piece;
+import engine.constants.Rank;
 import engine.constants.Square;
 import engine.utils.SquareUtils;
 
