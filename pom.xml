@@ -5,13 +5,13 @@
          http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.chessengine</groupId>
+    <groupId>engine</groupId>
     <artifactId>chess-engine</artifactId>
     <version>0.1.0</version>
     <packaging>jar</packaging>
 
     <name>Chess Engine</name>
-    <description>A high-performance chess engine built with bitboards in Java</description>
+    <description>A bitboard-based chess engine library with move generation, search, and evaluation</description>
 
     <properties>
         <maven.compiler.source>17</maven.compiler.source>
@@ -57,20 +57,6 @@
                         <include>**/*Test.java</include>
                         <include>**/*Tests.java</include>
                     </includes>
-                </configuration>
-            </plugin>
-
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.3.0</version>
-                <configuration>
-                    <archive>
-                        <manifest>
-                            <addClasspath>true</addClasspath>
-                            <mainClass>engine.ChessEngine</mainClass>
-                        </manifest>
-                    </archive>
                 </configuration>
             </plugin>
         </plugins>
