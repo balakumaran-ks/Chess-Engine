@@ -141,8 +141,7 @@ public final class MoveGenerator {
                 if (to.isPromotionRank(us)) {
                     addPromotions(moves, board, us, from, to);
                 } else {
-                    moves.add(new Move(from, to, Piece.PAWN,
-                            board.pieceAt(to).orElse(null), null, MoveFlag.NORMAL));
+                    addCaptureMove(moves, board, from, to, Piece.PAWN);
                 }
             });
         });
@@ -160,6 +159,9 @@ public final class MoveGenerator {
     private static void addPromotions(MoveList moves, Board board, Color us,
                                       Square from, Square to) {
         Piece captured = board.pieceAt(to).orElse(null);
+        if (captured == Piece.KING) {
+            return;
+        }
         moves.add(Move.promotion(from, to, Piece.PAWN, Piece.QUEEN, captured));
         moves.add(Move.promotion(from, to, Piece.PAWN, Piece.ROOK, captured));
         moves.add(Move.promotion(from, to, Piece.PAWN, Piece.BISHOP, captured));
@@ -175,8 +177,7 @@ public final class MoveGenerator {
             long targets = AttackTables.KNIGHT_ATTACKS[from.index()] & ~own;
             forEachDestination(targets, toIdx -> {
                 Square to = Square.fromIndex(toIdx);
-                moves.add(new Move(from, to, Piece.KNIGHT,
-                        board.pieceAt(to).orElse(null), null, MoveFlag.NORMAL));
+                addCaptureMove(moves, board, from, to, Piece.KNIGHT);
             });
         });
     }
@@ -188,8 +189,7 @@ public final class MoveGenerator {
             long targets = AttackTables.KNIGHT_ATTACKS[from.index()] & enemy;
             forEachDestination(targets, toIdx -> {
                 Square to = Square.fromIndex(toIdx);
-                moves.add(new Move(from, to, Piece.KNIGHT,
-                        board.pieceAt(to).orElse(null), null, MoveFlag.NORMAL));
+                addCaptureMove(moves, board, from, to, Piece.KNIGHT);
             });
         });
     }
@@ -254,9 +254,23 @@ public final class MoveGenerator {
                                           long targets, Piece piece) {
         forEachDestination(targets, toIdx -> {
             Square to = Square.fromIndex(toIdx);
-            moves.add(new Move(from, to, piece,
-                    board.pieceAt(to).orElse(null), null, MoveFlag.NORMAL));
+            addCaptureMove(moves, board, from, to, piece);
         });
+    }
+
+    /**
+     * Kings are never captured; checkmate ends the game before removal.
+     */
+    private static void addCaptureMove(MoveList moves, Board board, Square from, Square to, Piece piece) {
+        Piece captured = board.pieceAt(to).orElse(null);
+        if (captured == Piece.KING) {
+            return;
+        }
+        moves.add(new Move(from, to, piece, captured, null, MoveFlag.NORMAL));
+    }
+
+    private static void addQuietMove(MoveList moves, Square from, Square to, Piece piece) {
+        moves.add(new Move(from, to, piece, null, null, MoveFlag.NORMAL));
     }
 
     // ==================== King and Castling ====================
@@ -268,8 +282,7 @@ public final class MoveGenerator {
             long targets = AttackTables.KING_ATTACKS[from.index()] & ~own;
             forEachDestination(targets, toIdx -> {
                 Square to = Square.fromIndex(toIdx);
-                moves.add(new Move(from, to, Piece.KING,
-                        board.pieceAt(to).orElse(null), null, MoveFlag.NORMAL));
+                addCaptureMove(moves, board, from, to, Piece.KING);
             });
         });
     }
@@ -281,13 +294,16 @@ public final class MoveGenerator {
             long targets = AttackTables.KING_ATTACKS[from.index()] & enemy;
             forEachDestination(targets, toIdx -> {
                 Square to = Square.fromIndex(toIdx);
-                moves.add(new Move(from, to, Piece.KING,
-                        board.pieceAt(to).orElse(null), null, MoveFlag.NORMAL));
+                addCaptureMove(moves, board, from, to, Piece.KING);
             });
         });
     }
 
     private static void addCastlingMoves(MoveList moves, Board board, Color us) {
+        if (board.pieceBitboard(Piece.KING, us) == 0
+                || board.pieceBitboard(Piece.KING, us.opposite()) == 0) {
+            return;
+        }
         if (board.isInCheck(us)) return;
 
         if (us == Color.WHITE) {

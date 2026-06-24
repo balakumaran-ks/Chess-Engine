@@ -54,6 +54,12 @@ public final class MoveList implements Iterable<Move> {
         size = 0;
     }
 
+    public void swap(int i, int j) {
+        Move tmp = moves[i];
+        moves[i] = moves[j];
+        moves[j] = tmp;
+    }
+
     public Move[] toArray() {
         Move[] copy = new Move[size];
         System.arraycopy(moves, 0, copy, 0, size);

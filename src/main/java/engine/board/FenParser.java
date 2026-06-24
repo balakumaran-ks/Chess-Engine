@@ -4,6 +4,7 @@ import engine.constants.Color;
 import engine.constants.File;
 import engine.constants.Piece;
 import engine.constants.Square;
+import engine.search.Zobrist;
 
 /**
  * Parser and serializer for Forsyth-Edwards Notation (FEN).
@@ -64,6 +65,7 @@ public final class FenParser {
         if (parts.length == 6) parseFullmove(board, parts[5]);
 
         board.recomputeOccupancy();
+        Zobrist.initBoard(board);
         return board;
     }
 

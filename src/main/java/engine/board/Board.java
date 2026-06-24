@@ -8,6 +8,7 @@ import engine.move.MagicBitboards;
 import engine.move.Move;
 import engine.move.MoveFlag;
 import engine.move.MoveGenerator;
+import engine.search.Zobrist;
 import engine.utils.SquareUtils;
 
 import java.util.ArrayDeque;
@@ -59,6 +60,8 @@ public final class Board {
     private int fullmoveNumber = 1;
 
     private final Deque<UndoInfo> undoStack = new ArrayDeque<>();
+
+    private long zobristKey;
 
     public Board() {
     }
@@ -123,6 +126,14 @@ public final class Board {
 
     public int fullmoveNumber() {
         return fullmoveNumber;
+    }
+
+    public long zobristKey() {
+        return zobristKey;
+    }
+
+    public void setZobristKey(long zobristKey) {
+        this.zobristKey = zobristKey;
     }
 
     /**
@@ -363,6 +374,7 @@ public final class Board {
         flipSideToMove();
 
         recomputeOccupancy();
+        Zobrist.initBoard(this);
     }
 
     /**
@@ -413,6 +425,7 @@ public final class Board {
         }
 
         recomputeOccupancy();
+        Zobrist.initBoard(this);
     }
 
     private void updateCastlingRights(Square from, Square to) {
