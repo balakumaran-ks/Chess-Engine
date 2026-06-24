@@ -24,6 +24,7 @@ public final class Searcher {
     private long nodesSearched;
     private int lastScore;
     private Move bestRootMove;
+    private long deadlineMs;
 
     public Searcher() {
         this(new TranspositionTable(DEFAULT_TT_SIZE));
@@ -47,6 +48,9 @@ public final class Searcher {
         lastScore = 0;
         bestRootMove = null;
 
+        long timeBudget = limits.timeLimitMs();
+        deadlineMs = timeBudget > 0 ? System.currentTimeMillis() + timeBudget : 0;
+
         MoveList rootMoves = MoveGenerator.generateLegalMoves(board);
         if (rootMoves.isEmpty()) {
             return null;
@@ -63,7 +67,7 @@ public final class Searcher {
                 bestRootMove = pvMove;
             }
 
-            if (limits.shouldStop()) {
+            if (limits.shouldStop() || timeUp()) {
                 break;
             }
         }
@@ -72,6 +76,10 @@ public final class Searcher {
             bestRootMove = rootMoves.get(0);
         }
         return bestRootMove;
+    }
+
+    private boolean timeUp() {
+        return deadlineMs > 0 && System.currentTimeMillis() >= deadlineMs;
     }
 
     public void newGame() {
