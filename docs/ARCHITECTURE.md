@@ -1,109 +1,112 @@
 # Architecture
 
-## High-Level Pipeline
+## Runtime Pipeline
 
-```
-                  +-----------+
- FEN/UCI  ----->  |  Board    |  <-- 12 piece bitboards, game state
-                  +-----------+
-                       |
-                       v
-                +--------------+
-                | MoveGenerator| --> legal Move list
-                +--------------+
-                       |
-                       v
-                +----------+        +------------------+
-                | Searcher | <----> | TranspositionTable|
-                +----------+        +-------------------+
-                    |   ^
-        alpha-beta  |   |  Zobrist hash lookup
-                    v   |
-              +-----------+
-              | Evaluator |  <-- material + tapered PSQT + mobility + king safety
-              +-----------+
-                    |
-                    v
-              best Move  ----> UCI output ("bestmove e2e4")
+```text
+UCI command
+  -> UciEngine
+  -> Board / FenParser
+  -> MoveGenerator
+  -> Searcher
+  -> Evaluator
+  -> bestmove
 ```
 
-Persistence sits beside the pipeline as an optional sink:
+The engine is organized around a mutable `Board` and fast bitboard operations.
+Search uses make/unmake rather than copying positions at every node.
 
-```
-Searcher/Evaluator  ---->  PositionRepository  ---->  in-memory NoOp (default)
-                                                  ---->  MongoDB (configured)
-```
+## Packages
 
-## Subsystem Layout
+### `engine.constants`
 
-### `engine.constants` (Foundation)
+Defines the immutable chess-domain enums:
 
-Type-safe enumerations with bitboard-compatible ordinals. The key invariant: `Square.ordinal()` equals the bitboard index, so `1L << square.index()` targets the right bit.
-
-- `Square` — 64 squares, A1=0 through H8=63, with `fromAlgebraic`, `fromRankFile`, `mirror`, `isLightSquare`, `manhattanDistance`, `chebyshevDistance`
-- `Piece` — PAWN=0 through KING=5 with centipawn values (100, 320, 330, 500, 900, 20000) and `isSlidingPiece`, `isPawn`, `isKing`
-- `Color` — WHITE=0, BLACK=1 with `opposite()`
-- `File` (A-H), `Rank` (1-8)
+- `Square`: 64 squares using A1 = bit 0 through H8 = bit 63
+- `Piece`: pawn, knight, bishop, rook, queen, king
+- `Color`: white and black
+- `File` and `Rank`: board coordinate helpers
 
 ### `engine.board`
 
-- `Board` — 12 piece bitboards `long[6][2]`, two color occupancy bitboards, one full occupancy bitboard, game state (side to move, castling rights, en passant, clocks). Holds an `UndoInfo` stack for `makeMove`/`unmakeMove`.
-- `FenParser` — parses and serializes the 6 FEN fields.
+`Board` owns:
+
+- Piece bitboards indexed by piece and color
+- White, black, and all-piece occupancy
+- Side to move
+- Castling rights
+- En passant target
+- Halfmove and fullmove clocks
+- Undo stack for make/unmake
+- Current Zobrist key
+
+`FenParser` parses and serializes FEN positions.
 
 ### `engine.move`
 
-- `Move` — Java 17 record: `from`, `to`, `movingPiece`, `capturedPiece` (nullable), `promotionPiece` (nullable), `MoveFlag` enum. Provides `toUci()` and `fromUci()`.
-- `MoveList` — array-backed, pre-allocated to 256 slots, no boxing.
-- `AttackTables` — precomputed `long[64]` knight and king attack tables, `long[2][64]` pawn attack tables (per color).
-- `MagicBitboards` — bishop and rook attack lookups via the magic-bitboard technique (occupancy masks + magic numbers + lookup tables populated at class load).
-- `MoveGenerator` — `generatePseudoLegalMoves(Board)` for all pieces, `generateLegalMoves(Board)` filters moves that leave the king in check.
+Move generation is split into:
 
-### `engine.eval`
+- Precomputed pawn, knight, and king attacks
+- Magic-bitboard sliding attacks for bishops, rooks, and queens
+- Pseudo-legal generation
+- Legal filtering by make/unmake plus king-safety checks
 
-- `Evaluator` — returns a centipawn score from the side-to-move perspective (standard for negamax).
-- `PieceSquareTables` — `int[6][64]` arrays for middlegame and endgame, black mirrored via `SquareUtils.mirrorBitboard()`. Tapered blending based on game phase.
+Special moves covered by the code and tests:
+
+- Castling
+- En passant
+- Double pawn push
+- Promotion
+
+### `engine.evaluation`
+
+The evaluator returns a centipawn score from the side-to-move perspective.
+It currently includes:
+
+- Material
+- Tapered piece-square tables
+- Mobility
+- Bishop pair
+- King safety
+- Tempo
 
 ### `engine.search`
 
-- `Searcher` — negamax with alpha-beta, iterative deepening, quiescence search.
-- `Zobrist` — precomputed random keys per piece-square, turn, castling, en passant. Incrementally updated on make/unmake.
-- `TranspositionTable` — fixed-size two-tier table (depth-preferred + always-replace buckets), hashed by Zobrist key.
+Search is implemented as:
 
-### `engine.persistence`
+- Iterative deepening
+- Negamax alpha-beta
+- Quiescence search over legal captures
+- Zobrist hashing
+- Fixed-size transposition table
+- MVV-LVA capture ordering
+- Killer moves
+- History heuristic
 
-- `PositionRepository` — interface with `saveGame`, `loadGame`, `listGames`, `savePositionAnalysis`, `loadAnalysis`.
-- `NoOpPositionRepository` — default, logs a warning; engine runs database-free.
-- `MongoPositionRepository` — MongoDB-backed implementation behind `mongodb-driver-sync`.
+### `engine.uci`
 
-### `engine.ChessEngine`
+`UciEngine` is the process entry point configured in `pom.xml`.
 
-UCI entry point. Reads commands from stdin, dispatches to the engine pipeline, writes `bestmove` responses to stdout.
+Supported command families:
 
-## Key Design Patterns
+- `uci`
+- `isready`
+- `setoption` as a no-op acknowledgement
+- `ucinewgame`
+- `position startpos ...`
+- `position fen ...`
+- `go depth`
+- `go movetime`
+- `go wtime btime [winc binc movestogo]`
+- `go infinite` mapped to a bounded default depth
+- `stop`
+- `quit`
+- `print` as a local debug command
 
-- **State Stack (Memento)**: `Board.makeMove` pushes an `UndoInfo` record onto a stack; `unmakeMove` pops and restores. Zero allocation during search.
-- **Repository**: `PositionRepository` decouples persistence. The default `NoOp` impl makes the engine demoable without external deps; `MongoPositionRepository` is a drop-in.
-- **Template Method (Evaluation)**: `Evaluator` assembles component scores (material, PSQT, mobility, king safety) uniformly.
-- **Flyweight (Attack Tables)**: precomputed attack tables shared across all positions and search iterations.
+## Known Architectural Limits
 
-## Data Flow During a Search
-
-1. UCI receives `position startpos moves e2e4`
-2. `FenParser` builds the starting `Board`, then each UCI move is parsed and applied via `makeMove`
-3. UCI sends `go depth 5`
-4. `Searcher` runs iterative deepening depths 1 through 5:
-   - At each node, `MoveGenerator.generateLegalMoves` produces the move list
-   - Moves are ordered using PV move, MVV-LVA, killers, history heuristic
-   - `makeMove` is applied, `negamax(depth-1, -beta, -alpha)` recurses, `unmakeMove` restores
-   - Transposition table probes cut off重复 work
-   - `Evalu`ator scores leaf nodes (or `quiescence` searches captures first)
-5. PV Move is extracted from the transposition table and sent as `bestmove`
-
-## Performance Targets
-
-- Perft throughput: ~1M nodes/sec (single-threaded, Java 17 on modern hardware)
-- Search depth in 5 seconds: 5-7 plies in the middlegame
-- Transposition table size: configurable, default 64MB (~4M entries)
-- Magic bitboard table footprint: ~350KB precomputed at class load
-
-Exact numbers are recorded in `docs/PERFORMANCE.md` after implementation.
+- Search is single-threaded.
+- `stop` is cooperative and checked between iterative-deepening iterations.
+- No opening book.
+- No endgame tablebases.
+- No persistent game/result storage.
+- No checked-in tournament runner or rating harness yet.

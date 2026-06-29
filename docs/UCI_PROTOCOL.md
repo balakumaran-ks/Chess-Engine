@@ -1,125 +1,98 @@
-# UCI Protocol Integration
+# UCI Protocol Support
+
+`engine.uci.UciEngine` implements a practical subset of the Universal Chess
+Interface sufficient for GUI and tester integration.
+
+## Run
+
+```bash
+mvn clean package
+java -jar target/chess-engine-0.1.0.jar
+```
 
 ## Supported Commands
 
-The engine implements the standard Universal Chess Interface (UCI), supported by Arena, Chessbase, cutechess-cli, lichess-bot, and most chess GUIs.
+### `uci`
 
-| Command | Behavior |
-|---------|----------|
-| `uci` | Print engine identification (`id name`, `id author`) and `uciok`. |
-| `isready` | Respond `readyok`. Used by GUIs to confirm the engine is alive. |
-| `ucinewgame` | Clear the transposition table and search state. |
-| `position startpos [moves ...]` | Set up the standard starting position, then apply the listed UCI moves sequentially. |
-| `position fen <fen> [moves ...]` | Set up the given FEN position, then apply the listed moves. |
-| `go depth N` | Search to fixed depth N. |
-| `go movetime N` | Search for N milliseconds. |
-| `go wtime X btime Y [winc A binc B]` | Search with time management based on remaining clocks. |
-| `go infinite` | Search until `stop` or `quit` is received. |
-| `stop` | Stop the current search and return the best move. |
-| `quit` | Exit the engine. |
-| `debug [on\|off]` | Toggle debug logging (optional). |
+Returns engine identity and `uciok`.
 
-## Output
-
-When the search completes, the engine prints:
-
-```
-info depth 5 score cp 23 pv e2e4 e7e5 g1f3 b8c6 ...
-bestmove e2e4
+```text
+uci
+id name ChessEngine 0.1
+id author Engine
+uciok
 ```
 
-- `info depth N score cp X pv ...` — the search depth reached, the centipawn score from the side-to-move perspective, and the principal variation.
-- For mate scores: `info depth 5 score mate 3 pv ...` (mate in 3 moves).
-- `bestmove <move>` — the chosen move in UCI coordinate notation.
+### `isready`
 
-## UCI Move Format
-
-Moves are encoded as `<from><to>[<promotion>]`:
-
-- `e2e4` — pawn from e2 to e4
-- `g1f3` — knight from g1 to f3
-- `e7e8q` — pawn from e7 to e8 promoting to a queen
-- `e1g1` — kingside castling (king from e1 to g1; the GUI infers the rook move)
-- `e5d6` — pawn from e5 to d6 (could be a capture or an en passant capture; the engine disambiguates from board state)
-
-## Time Management
-
-For `go wtime X btime Y` (the typical "real game" invocation), the engine computes a time budget for this move:
-
-- Approximate per-move budget = `remainingTime / 30` (with adjustments for increment).
-- Start the search on a worker thread.
-- A timer sets a `volatile boolean shouldStop` flag ~5ms before the budget expires.
-- The search loop checks `shouldStop` at every node and returns the best move from the last completed iteration.
-- Always finish the current iteration when a new best move is found, to avoid returning a move from an interrupted partial iteration.
-
-## Connecting to Chess GUIs
-
-### lichess-bot
-
-Clone [lichess-bot](https://github.com/lichess-bot-devs/lichess-bot), add an engine entry:
-
-```yaml
-engines:
-  - name: ChessEngine
-    engine:
-      workingDir: /path/to/chess-engine
-      protocol: uci
-      commands:
-        - java
-        - -jar
-        - target/chess-engine-0.1.0.jar
-    options:
-      uci_chess960: false
+```text
+isready
+readyok
 ```
 
-### Arena (Windows)
+### `ucinewgame`
 
-1. Engines → Install Engine → select the engine JAR (with `java -jar` as the wrapper).
-2. Set the protocol to UCI.
-3. The engine appears in the tournament list.
+Clears search state, including the transposition table and move-ordering state.
 
-### cutechess-cli (Batch Testing)
+### `position`
 
-```bash
-cutechess-cli \
-  -engine name=ChessEngine cmd="java -jar target/chess-engine-0.1.0.jar" \
-  -engine name=Stockfish cmd=stockfish \
-  -each proto=uci tc=40/40 \
-  -rounds 100
+Supported forms:
+
+```text
+position startpos
+position startpos moves e2e4 e7e5
+position fen <six-field-fen>
+position fen <six-field-fen> moves <uci-move> ...
 ```
 
-Use this to validate engine strength (target ~1600 Elo) against known-rated engines.
+Illegal FEN or illegal moves are reported as `info string ...` messages.
 
-## Example Session
+### `go`
 
-A complete UCI handshake:
+Supported forms:
 
-```
-> uci
-< id name ChessEngine 0.1.0
-< id author Capstone Project
-< uciok
-> isready
-< readyok
-> ucinewgame
-> position startpos
-> go depth 5
-< info depth 1 score cp 20 pv e2e4
-< info depth 2 score cp 0 pv e2e4 e7e5
-< ...
-< info depth 5 score cp 15 pv e2e4 e7e5 g1f3 b8c6 f1b5
-< bestmove e2e4
-> quit
+```text
+go depth 4
+go movetime 1000
+go wtime 60000 btime 60000 winc 1000 binc 1000
+go infinite
 ```
 
-## UCI Options
+The engine returns:
 
-The engine exposes the following UCI options to the GUI:
+```text
+bestmove <move>
+```
 
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `Hash` | spin | 64 | Transposition table size in MB. |
-| `Depth` | spin | 0 | Maximum search depth (0 = unlimited). |
-| `Movetime` | spin | 0 | Fixed search time per move in ms (0 = use time control). |
+If there is no legal move, it returns:
 
-Set these via `setoption name Hash value 128` commands.
+```text
+bestmove 0000
+```
+
+### `stop`
+
+Requests the current search to stop. Current search is synchronous in the UCI
+command loop, so this is mainly useful as a state hook until async search is
+added.
+
+### `quit`
+
+Exits the command loop.
+
+### `print`
+
+Project-local debug command. Returns the current FEN as an `info string`.
+
+## Not Supported Yet
+
+- UCI options with actual runtime configuration
+- `ponder`
+- `searchmoves`
+- `mate`
+- `nodes`
+- `movestogo` without both clocks
+- Asynchronous search thread management
+- Rich `info depth score nodes pv ...` reporting
+
+These gaps are tracked in the tester integration roadmap.

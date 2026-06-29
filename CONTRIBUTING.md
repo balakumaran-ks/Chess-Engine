@@ -1,61 +1,60 @@
 # Contributing
 
-Contributions welcome. This project is a capstone for technical interviews, so the bar for code quality and test coverage is deliberately high.
+This project is a Java chess-engine codebase. Changes should keep the engine
+correct first, then improve strength or speed.
 
-## Code Style
+## Standards
 
-- Java 17 (source and target). Use records, switch expressions, `var` for local type inference where it aids readability.
-- Package: `engine.*`. New components go in `engine.<subsystem>` mirroring the existing layout (`board`, `move`, `eval`, `search`, `persistence`).
-- No `null` returns from public APIs. Use `Optional<T>` for queries that may return nothing.
-- No checked exceptions. Throw `IllegalArgumentException` with a helpful message at the boundary.
-- Javadoc every public class and method. Include `@param`, `@return`, `@throws`. One-line comments only when the *why* is non-obvious; never narrate *what* the code does.
+- Java 17.
+- Maven build.
+- Package root is `engine`.
+- Tests use JUnit 5.
+- Keep public APIs small and documented.
+- Avoid broad refactors when making narrow engine fixes.
+- Prefer deterministic tests over benchmark-style assertions.
 
-## Bitboard Invariants (Non-Negotiable)
+## Core Invariants
 
-These must hold at every commit:
+- `Square.index()` maps directly to the bitboard bit index.
+- White and black occupancy bitboards must never overlap.
+- `allOccupancy()` must equal `whitePieces | blackPieces`.
+- Make/unmake must restore FEN-equivalent board state.
+- Legal move generation must never produce king captures.
+- Search must leave the input board unchanged from the caller's perspective.
 
-1. `Square.ordinal() == Square.index()` equals the bitboard index. Never break this correspondence.
-2. Piece bitboards are subsets of their color occupancy bitboard: `pieceBBs[p][c] ⊆ colorBBs[c]`.
-3. Color occupancy bitboards are disjoint: `whitePieces & blackPieces == 0`.
-4. Total occupancy equals the union: `allPieces == whitePieces | blackPieces == OR(pieceBBs)`.
-5. No bit may be set outside the 64-bit board: `(bitboard & ~ALL_SQUARES) == 0`.
+## Required Verification
 
-The `Board.recomputeOccupancy()` helper enforces 2-4. Use it after any manual bitboard mutation.
-
-## Test Requirements
-
-- Every new public class needs a corresponding `*Test` in the same package under `src/test/java/`.
-- Tests use JUnit 5 (`org.junit.jupiter.api.Test`, `@DisplayName`).
-- Move generation correctness is verified by **perft**. If you change move generation, run `mvn test -Dtest=BoardTest#perft*` and confirm depth 1-3 node counts (20, 400, 8902).
-- Evaluation or search changes need at least one tactical puzzle test (mate-in-N or known best-move position).
-
-## Commit Conventions
-
-Use [Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-<type>(<scope>): <subject>
-
-<optional body>
-```
-
-Types: `feat`, `fix`, `docs`, `refactor`, `test`, `perf`, `chore`.
-
-Scopes match package names: `board`, `move`, `eval`, `search`, `persistence`, `uci`, `docs`.
-
-Examples:
-```
-feat(move): add magic bitboard lookup for bishop attacks
-fix(search): correct mate score sign in negamax
-test(board): add perft depth 3 from starting position
-docs(eval): document tapered evaluation math
-```
-
-## Build and Verify
+Run before committing:
 
 ```bash
-mvn clean test       # run all unit tests
-mvn clean package    # build UCI jar
+mvn clean test
+mvn clean package
 ```
 
-Before committing, ensure `mvn clean test` passes and no new compiler warnings are introduced.
+Use focused tests while developing:
+
+```bash
+mvn test -Dtest=MoveExecutionTest
+mvn test -Dtest=SearcherTest
+mvn test -Dtest=UciEngineTest
+```
+
+## Areas That Need Extra Care
+
+- Move generation: validate with perft tests.
+- Make/unmake: assert board restoration after every special move type.
+- Evaluation: use relative-position tests, not absolute score promises unless
+  the score is intentionally stable.
+- Search: include tactical tests for captures, mates, stalemate, and no-move cases.
+- UCI: test protocol output exactly enough to catch integration regressions.
+
+## Commit Style
+
+Use concise, conventional commits:
+
+```text
+feat(search): add aspiration windows
+fix(move): reject illegal castling through check
+test(uci): cover go movetime command
+docs(roadmap): add tester integration plan
+```
