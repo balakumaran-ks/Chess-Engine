@@ -58,6 +58,15 @@ public final class UciEngine {
              new java.io.OutputStreamWriter(System.out));
     }
 
+    /**
+     * Entry point for running the engine as a standalone UCI process.
+     *
+     * @param args unused
+     */
+    public static void main(String[] args) throws IOException {
+        new UciEngine().run();
+    }
+
     public boolean isRunning() {
         return running;
     }
@@ -72,7 +81,11 @@ public final class UciEngine {
     public void run() throws IOException {
         String line;
         while (running && (line = in.readLine()) != null) {
-            processCommand(line.trim());
+            List<String> responses = processCommand(line.trim());
+            for (String response : responses) {
+                out.println(response);
+            }
+            out.flush();
         }
     }
 
